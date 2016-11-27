@@ -22,7 +22,6 @@ Chad Hoang
 1176413
 */
 
-
 // Variables
 int totalPages;						/* total_number_of_page_frames (in main memory) */
 int maxSegmentLength;				/* maximum segment length (in number of pages) */
@@ -38,6 +37,8 @@ struct Process						//	Structure of the process
 	int totalPageFramesOnDisk;
 };
 Process *processes;					//	Array that contains all the structures of the processes
+int *processInstructionsOrder;		//	Array containing order of processIDs for address instruction list
+string *addressInstructions;		//	Array containing order of adddress instructions
 
 //	Methods
 #pragma region Method initalization
@@ -46,6 +47,11 @@ void ReadFromFile(string FileName);
 int main(int argc, char* argv[])
 {
 	cout << endl;
+
+	//	Initalize instruction arrays
+	int totalInstructions = 100;
+	processInstructionsOrder = new int[totalInstructions];
+	addressInstructions = new string[totalInstructions];
 
 	//	Read, Evaluate, and Assign variables based in the input .txt file supplied by command argument
 	ReadFromFile(argv[1]);
@@ -62,6 +68,8 @@ int main(int argc, char* argv[])
 	for (size_t i = 0; i < totalProcesses; i++)
 		cout << "Process " << processes[i].processID << " has " << processes[i].totalPageFramesOnDisk << " total page frames on disk." << endl;
 
+	for (int i = 0; i < totalInstructions; ++i)
+		cout << "Process " << processInstructionsOrder[i] << " has address instruction " << addressInstructions[i] << endl;
 }
 
 #pragma region ReadFromFile(): Read, Evaluate, and Assign variables based in the input .txt file supplied by command argument
@@ -125,6 +133,37 @@ void ReadFromFile(string FileName)
 			//	Cache process totalPageFramesOnDisk
 			iss >> str;
 			processes[i].totalPageFramesOnDisk = stoi(str);
+		}
+
+		//	Fetch next line & evaluate
+		int instructionCounter = 0;
+		while (getline(inputFile, currentLine))
+		{
+			//cout << "parsing: " << currentLine << endl;
+
+			for (size_t i = 0; i < totalProcesses; i++)
+			{
+				string processIDtoString = to_string(processes[i].processID);
+				if (currentLine.find(processIDtoString) != string::npos)
+				{
+					//cout << "found process ID " << processes[i].processID << endl;
+
+					//	Shave currentLine so it only contains the address string
+					string addressInstruction = currentLine.erase(0, processIDtoString.length()+1);
+
+					//	Add corresponding processID and address to our arrays
+					processInstructionsOrder[instructionCounter] = processes[i].processID;
+					//cout << instructionCounter << endl;
+					//cout << sizeof(addressInstructions) / sizeof(addressInstructions[0]) << endl;
+					//cout << addressInstruction << endl;
+					addressInstructions[instructionCounter] = addressInstruction;
+
+
+					break;
+				}
+			}
+
+			instructionCounter++;
 		}
 	}
 }
