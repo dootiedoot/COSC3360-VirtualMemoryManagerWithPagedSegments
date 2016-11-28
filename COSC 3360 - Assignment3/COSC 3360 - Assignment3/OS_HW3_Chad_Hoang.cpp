@@ -68,8 +68,8 @@ int main(int argc, char* argv[])
 	for (size_t i = 0; i < totalProcesses; i++)
 		cout << "Process " << processes[i].processID << " has " << processes[i].totalPageFramesOnDisk << " total page frames on disk." << endl;
 
-	for (int i = 0; i < totalInstructions; ++i)
-		cout << "Process " << processInstructionsOrder[i] << " has address instruction " << addressInstructions[i] << endl;
+	//for (int i = 0; i < totalInstructions; ++i)
+	//	cout << "Process " << processInstructionsOrder[i] << " has address instruction " << addressInstructions[i] << endl;
 }
 
 #pragma region ReadFromFile(): Read, Evaluate, and Assign variables based in the input .txt file supplied by command argument
