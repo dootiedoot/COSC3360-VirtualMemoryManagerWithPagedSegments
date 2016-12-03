@@ -15,14 +15,14 @@
 using namespace std;
 
 /*
-Assignment 3
-COSC 3360 - Fundamentals of Operating Systems
-University of Houston
-Chad Hoang
-1176413
+	Assignment 3
+	COSC 3360 - Fundamentals of Operating Systems
+	University of Houston
+	Chad Hoang
+	1176413
 */
 
-// Variables
+#pragma region ----------------------------		Variables	----------------------------
 int totalPages;						/* total_number_of_page_frames (in main memory) */
 int maxSegmentLength;				/* maximum segment length (in number of pages) */
 int pageSize;						/* page size (in number of bytes) */
@@ -31,31 +31,69 @@ int	lookAheadwindow;				/* lookahead window size for OPT, 0 for others (which do
 int windowMin;
 int windowMax;
 int totalProcesses;					/* total number of processes */
-struct Process						//	Structure of the process
+
+vector<int> processInstructionsOrder;		//	Array of order of processIDs for address instruction list
+vector<string> addressInstructions;			//	Array of order of adddress instructions
+vector<int> addressToDisplacment;			//	Array of order of adddress instructions
+
+typedef struct Address
 {
-	int processID;					/* process_id followed by total number of page frames on disk */
+	int segment;
+	int page;
+	int displacement;
+}Address;
+typedef struct Frame
+{
+	int processID;
+	string address;
+}Frame;
+typedef struct Page
+{
+	Frame frame;
+}Page;
+typedef struct PageTable
+{
+	vector<Page> pages;
+}PageTable;
+typedef struct Segment
+{
+	PageTable pageTable;
+}Segment;
+
+typedef struct SegmentTable
+{
+	vector<Segment> segments;
+}SegmentTable;
+typedef struct AddressSpace
+{
+	vector<Address> addresses;				//	Array that contains all the addresses
+	vector<SegmentTable> segmentTables;		//	Array that contains all the segment tables in this address space
+}AddressSpace;
+typedef struct Process						//	Structure of the process
+{
+	int processID;							/* process_id followed by total number of page frames on disk */
 	int totalPageFramesOnDisk;
-};
-Process *processes;					//	Array that contains all the structures of the processes
-int *processInstructionsOrder;		//	Array containing order of processIDs for address instruction list
-string *addressInstructions;		//	Array containing order of adddress instructions
+	AddressSpace addressSpace;				//	AddressSpace that contains of all the addresses 
+}Process;
+Process *processes;							//	Array of all the structures of the processes
 
-//	Methods
-#pragma region Method initalization
+vector<Frame> framesInMainMemory;			//	Array of frames currently in main memory
+vector<Frame> framesInDiskTable;			//	Array of frames stored in the disk table
+#pragma endregion
+
+#pragma region ----------------------------		Methods		----------------------------
 void ReadFromFile(string FileName);
+#pragma endregion
 
+#pragma region ----------------------------		Main		----------------------------
 int main(int argc, char* argv[])
 {
 	cout << endl;
 
-	//	Initalize instruction arrays
-	int totalInstructions = 100;
-	processInstructionsOrder = new int[totalInstructions];
-	addressInstructions = new string[totalInstructions];
-
 	//	Read, Evaluate, and Assign variables based in the input .txt file supplied by command argument
 	ReadFromFile(argv[1]);
 
+	//	Display statistics
 	cout << "Total pages: \t\t\t" << totalPages << endl;
 	cout << "Max segment length: \t\t" << maxSegmentLength << endl;
 	cout << "Page size: \t\t\t" << pageSize << endl;
@@ -65,12 +103,31 @@ int main(int argc, char* argv[])
 	cout << "Window Max: \t\t\t" << windowMax << endl;
 	cout << "Total processes: \t\t" << totalProcesses << endl;
 
+	cout << endl;
 	for (size_t i = 0; i < totalProcesses; i++)
 		cout << "Process " << processes[i].processID << " has " << processes[i].totalPageFramesOnDisk << " total page frames on disk." << endl;
 
-	//for (int i = 0; i < totalInstructions; ++i)
-	//	cout << "Process " << processInstructionsOrder[i] << " has address instruction " << addressInstructions[i] << endl;
+	cout << endl;
+	for (int i = 0; i < totalProcesses; ++i)
+	{
+		for (size_t j = 0; j < processes[i].addressSpace.segmentTables.size(); j++)
+		{
+			for (size_t k = 0; k < processes[i].addressSpace.segmentTables[j].segments.size(); k++)
+			{
+				for (size_t l = 0; l < processes[i].addressSpace.segmentTables[j].segments[k].pageTable.pages.size(); l++)
+				{
+					cout << "Process " << processes[i].processID <<
+						" segment table " << j <<
+						" segment " << k <<
+						" page " << l <<
+						" frame " << processes[i].addressSpace.segmentTables[j].segments[k].pageTable.pages[l].frame.address << endl;
+				}
+			}
+		}
+		cout << endl;
+	}
 }
+#pragma endregion
 
 #pragma region ReadFromFile(): Read, Evaluate, and Assign variables based in the input .txt file supplied by command argument
 void ReadFromFile(string FileName)
@@ -136,7 +193,6 @@ void ReadFromFile(string FileName)
 		}
 
 		//	Fetch next line & evaluate
-		int instructionCounter = 0;
 		while (getline(inputFile, currentLine))
 		{
 			//cout << "parsing: " << currentLine << endl;
@@ -152,18 +208,39 @@ void ReadFromFile(string FileName)
 					string addressInstruction = currentLine.erase(0, processIDtoString.length()+1);
 
 					//	Add corresponding processID and address to our arrays
-					processInstructionsOrder[instructionCounter] = processes[i].processID;
+					processInstructionsOrder.push_back(processes[i].processID);
 					//cout << instructionCounter << endl;
 					//cout << sizeof(addressInstructions) / sizeof(addressInstructions[0]) << endl;
 					//cout << addressInstruction << endl;
-					addressInstructions[instructionCounter] = addressInstruction;
+					addressInstructions.push_back(addressInstruction);
 
+					SegmentTable newSegmentTable;
+					Segment newSegment;
+					Page newPage;
+					Frame newFrame;
+
+					newFrame.processID = processes[i].processID;
+					newFrame.address = addressInstruction;
+
+					newPage.frame = newFrame;
+
+					newSegment.pageTable.pages.push_back(newPage);
+
+					newSegmentTable.segments.push_back(newSegment);
+
+					processes[i].addressSpace.segmentTables.push_back(newSegmentTable);
+
+					/*char *cstr = new char[addressInstruction.length() + 1];
+					strcpy(cstr, addressInstruction.c_str());
+					char *pLine;
+					int addressToInt = strtol(cstr, &pLine, 0);
+					delete[] cstr;*/
+
+					//addressToDisplacment.push_back(addressToInt);
 
 					break;
 				}
 			}
-
-			instructionCounter++;
 		}
 	}
 }
