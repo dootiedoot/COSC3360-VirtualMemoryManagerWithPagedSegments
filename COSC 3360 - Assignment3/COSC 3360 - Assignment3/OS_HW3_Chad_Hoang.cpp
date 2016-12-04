@@ -513,10 +513,9 @@ void LRU_PageReplacement()
 				{
 					//	Search if the page already exist, remove it from head
 					for (size_t l = 0; l < LRU_Array.size(); l++)
-						if (LRU_Array.front()->pageID == LRU_Array[l]->pageID
-							&& LRU_Array.front()->frameID == LRU_Array[l]->frameID)
+						if (LRU_Array[l]->pageID == pPageAccessing->pageID)
 						{
-							LRU_Array.erase(LRU_Array.begin());
+							LRU_Array.erase(LRU_Array.begin() + l);
 							break;
 						}
 
