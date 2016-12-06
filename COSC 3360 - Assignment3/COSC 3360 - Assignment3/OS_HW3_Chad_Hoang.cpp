@@ -29,7 +29,7 @@ int segmentLength;					/* maximum segment length (in number of pages) */
 int pageSize;						/* page size (in number of bytes) */
 int pageFramePerProcess;			/* number_of_page_frames_per_process for FIFO, LRU, LFU and OPT, or delta (window size) for the Working Set algorithm */
 int	lookAheadwindow;				/* lookahead window size for OPT, 0 for others (which do not use this value) */
-int windowMin;
+int windowMin;			
 int windowMax;
 int totalProcesses;					/* total number of processes */
 
@@ -114,6 +114,8 @@ void AllocateIntoDisk(Process *pProcess);
 void FIFO_PageReplacement();
 void LRU_PageReplacement();
 void LFU_PageReplacement();
+void OPT_PageReplacement();
+void WS_PageReplacement();
 #pragma endregion
 
 #pragma region ----------------------------		Main		----------------------------
@@ -149,16 +151,17 @@ int main(int argc, char* argv[])
 	ClearForNextPageReplacement();
 
 	cout << "\n-------------------------	LFU Page Replacement	------------------------\n" << endl;
-	//LFU_PageReplacement();
+	LFU_PageReplacement();
 
 	ClearForNextPageReplacement();
 
 	cout << "\n-------------------------	OPT Page Replacement	------------------------\n" << endl;
-
+	//OPT_PageReplacement();
 
 	ClearForNextPageReplacement();
 
 	cout << "\n-------------------------	WS Page Replacement	------------------------\n" << endl;
+	WS_PageReplacement();
 
 }
 #pragma endregion
@@ -442,8 +445,8 @@ void LRU_PageReplacement()
 				int pageID = (addressToInt >> (int)log2(pageSize)) & ((1 << (int)log2(segmentLength)) - 1);
 				int segmentID = addressToInt >> ((int)log2(pageSize) + (int)log2(segmentLength));
 
-				printf("Attempting page access with Process %d, Segment %d, Page %d, Segment Length %d.\n", i, segmentID, pageID, processes[i].addressSpace.segmentTables[0].segments.size());
 				//	Attempt to page access
+				printf("Attempting page access with Process %d, Segment %d, Page %d, Segment Length %d.\n", i, segmentID, pageID, processes[i].addressSpace.segmentTables[0].segments.size());
 				Page *pPageAccessing = &processes[i].addressSpace.segmentTables[0].segments[segmentID].pageTable.pages[pageID];
 
 				Frame *pFrame = NULL;
@@ -455,7 +458,7 @@ void LRU_PageReplacement()
 
 					cout << "\033[0;31m * Page fault \033[0m" << endl;
 				}
-				//	hit
+				//	if the page accessed matches, replace.
 				else if (!(framesInMainMemory[pPageAccessing->frameID].processID == processes[i].processID &&
 					framesInMainMemory[pPageAccessing->frameID].pageID == pageID &&
 					framesInMainMemory[pPageAccessing->frameID].segmentID == segmentID))
@@ -515,14 +518,13 @@ void LRU_PageReplacement()
 					for (size_t l = 0; l < LRU_Array.size(); l++)
 						if (LRU_Array[l]->pageID == pPageAccessing->pageID)
 						{
-							LRU_Array.erase(LRU_Array.begin() + l);
+							LRU_Array.erase(LRU_Array.begin());
 							break;
 						}
 
 					//	Push back the new page pointer
 					LRU_Array.push_back(pPageAccessing);
 					printf("\033[0;32m Page Found. \033[0m\n");
-					cout << LRU_Array.size() << endl;
 				}
 
 				break;
@@ -535,6 +537,10 @@ void LRU_PageReplacement()
 #pragma region LFU_PageReplacement()
 void LFU_PageReplacement()
 {
+	//	vector that keeps track of previous pages
+	vector<Page*> History_Array;
+	vector<Page*> LFU_Array;
+	
 	//	Initialize the main memory 
 	BuildMainMemory(mainMemoryMaxSize);
 
@@ -616,6 +622,7 @@ void LFU_PageReplacement()
 							{
 								pFrame = &framesInMainMemory[k];
 								cout << "\033[0;32m Found unallocated frame in main memory. \033[0m" << endl;
+
 								break;
 							}
 						}
@@ -642,15 +649,343 @@ void LFU_PageReplacement()
 					//printf("Setting Page(%d) isAllocated To True\n", pPageAccessing->pageID);
 					pPageAccessing->isAllocated = true;
 					processes[i].addressSpace.LastPagesUsed.push_back(*pPageAccessing);
+
+					//	Add page into history
+					History_Array.push_back(pPageAccessing);
 				}
 				else
 				{
+					//	Add page into history
+					History_Array.push_back(pPageAccessing);
+					
 					printf("\033[0;32m Page Found. \033[0m\n");
 				}
 
 				break;
 			}
 		}
+
+		/*cout << "History Array: [";
+		/*for (size_t history = 0; history < History_Array.size(); history++)
+		{
+			if (history + 1 == History_Array.size())
+				cout << History_Array[history]->frameID;
+			else
+				cout << History_Array[history]->frameID << ", ";
+		}
+		cout << "]" << endl;*/
+	}
+}
+#pragma endregion
+
+#pragma region OPT_PageReplacement()
+void OPT_PageReplacement()
+{
+	cout << "Delta: " << mainMemoryMaxSize << endl << endl;
+
+	//	vector that keeps track of the pages in chronological order from oldest begin to newest end
+	vector<Page*> WS_Array;
+
+	//	Initialize the main memory 
+	BuildMainMemory(mainMemoryMaxSize);
+
+	//	Initalize processes array
+	processes = new Process[totalProcesses];
+
+	for (size_t i = 0; i < totalProcesses; i++)
+	{
+		istringstream iss(instructions[i]);
+
+		//	Cache processID
+		string str;
+		iss >> str;
+		processes[i].processID = stoi(str);
+
+		//	Cache process totalPageFramesOnDisk
+		iss >> str;
+		processes[i].totalPageFramesOnDisk = stoi(str);
+		AllocateIntoDisk(&processes[i]);
+	}
+
+	//	Loop through each instruction and perform parse
+	for (size_t j = totalProcesses; j < instructions.size(); j++)
+	{
+		string instruction = instructions[j];
+
+		for (size_t i = 0; i < totalProcesses; i++)
+		{
+			string processIDtoString = to_string(processes[i].processID);
+			if (instruction.find(processIDtoString) != string::npos)
+			{
+				//	Shave currentLine so it only contains the address string
+				string addressString = instruction.erase(0, processIDtoString.length() + 1);
+
+				//	Convert address string to an int
+				char *cstr = new char[addressString.length() + 1];
+				strcpy(cstr, addressString.c_str());
+				char *pLine;
+				unsigned int addressToInt = (unsigned int)strtol(cstr, &pLine, 0);
+
+				if (((int)addressToInt) < 0)
+					continue;
+
+				//	Parse address for our Displacement, Page, and Segment
+				int displacement = addressToInt & ((1 << (int)log2(pageSize)) - 1);
+				int pageID = (addressToInt >> (int)log2(pageSize)) & ((1 << (int)log2(segmentLength)) - 1);
+				int segmentID = addressToInt >> ((int)log2(pageSize) + (int)log2(segmentLength));
+
+				//	Attempt to page access
+				printf("Attempting page access with Process %d, Segment %d, Page %d, Segment Length %d.\n", i, segmentID, pageID, processes[i].addressSpace.segmentTables[0].segments.size());
+				Page *pPageAccessing = &processes[i].addressSpace.segmentTables[0].segments[segmentID].pageTable.pages[pageID];
+
+				Frame *pFrame = NULL;
+				bool PageFault = false;
+				//	if the accessing page is allocated, page fault
+				if (pPageAccessing->isAllocated == false)
+				{
+					PageFault = true;
+
+					cout << "\033[0;31m * Page fault \033[0m" << endl;
+				}
+				//	if the page accessed matches, replace.
+				else if (!(framesInMainMemory[pPageAccessing->frameID].processID == processes[i].processID &&
+					framesInMainMemory[pPageAccessing->frameID].pageID == pageID &&
+					framesInMainMemory[pPageAccessing->frameID].segmentID == segmentID))
+				{
+					PageFault = true;
+					cout << "\033[0;33m * Page fault (Was Replaced) \033[0m" << endl;
+				}
+
+				if (PageFault)
+				{
+					if (WS_Array.size() < pageFramePerProcess)
+					{
+						//	look for empty space in the main memory
+						for (int k = 0; k < framesInMainMemory.size(); k++)
+						{
+							if (framesInMainMemory[k].isAllocated == false)
+							{
+								pFrame = &framesInMainMemory[k];
+								cout << "\033[0;32m Found unallocated frame in main memory. \033[0m" << endl;
+
+								//	Push back the new page pointer
+								WS_Array.push_back(pPageAccessing);
+
+								break;
+							}
+						}
+						if (pFrame == NULL)
+						{
+							printf("\033[0;31m *ERROR*, pFrame==NULL \033[0m\n");
+							break;
+						}
+					}
+					else //Replace Page
+					{
+						//	set frame pointer to head
+						pFrame = &framesInMainMemory[WS_Array[0]->frameID];
+
+						//	Push back the new page pointer
+						WS_Array.push_back(pPageAccessing);
+
+						//	remove head from working set
+						WS_Array.erase(WS_Array.begin());
+
+						printf("\033[0;32m Replaced frame %d...\033[0m\n", pFrame->frameID);
+					}
+
+					//printf("ALlocating to Frame(%d)\n", pFrame->frameID);
+					pFrame->isAllocated = true;
+					pFrame->processID = processes[i].processID;
+					pFrame->pageID = pageID;
+					pFrame->segmentID = segmentID;
+
+					//	set page to know what frame
+					pPageAccessing->frameID = pFrame->frameID;
+					pPageAccessing->isAllocated = true;
+
+					i--;
+					continue;
+				}
+				else
+				{
+					if (WS_Array.size() > pageFramePerProcess)
+					{
+						//	remove head from working set
+						WS_Array.erase(WS_Array.begin());
+					}
+
+					printf("\033[0;32m Page Found. \033[0m\n");
+				}
+				break;
+			}
+		}
+
+		cout << "Working Set: [";
+		for (size_t ws = 0; ws < WS_Array.size(); ws++)
+		{
+			if (ws + 1 == WS_Array.size())
+				cout << WS_Array[ws]->frameID;
+			else
+				cout << WS_Array[ws]->frameID << ", ";
+		}
+		cout << "]" << endl;
+	}
+}
+#pragma endregion
+
+#pragma region WS_PageReplacement()
+void WS_PageReplacement()
+{
+	cout << "Delta: " << mainMemoryMaxSize << endl << endl;
+	
+	//	vector that keeps track of the pages in chronological order from oldest begin to newest end
+	vector<Page*> WS_Array;
+
+	//	Initialize the main memory 
+	BuildMainMemory(mainMemoryMaxSize);
+
+	//	Initalize processes array
+	processes = new Process[totalProcesses];
+
+	for (size_t i = 0; i < totalProcesses; i++)
+	{
+		istringstream iss(instructions[i]);
+
+		//	Cache processID
+		string str;
+		iss >> str;
+		processes[i].processID = stoi(str);
+
+		//	Cache process totalPageFramesOnDisk
+		iss >> str;
+		processes[i].totalPageFramesOnDisk = stoi(str);
+		AllocateIntoDisk(&processes[i]);
+	}
+
+	//	Loop through each instruction and perform parse
+	for (size_t j = totalProcesses; j < instructions.size(); j++)
+	{
+		string instruction = instructions[j];
+
+		for (size_t i = 0; i < totalProcesses; i++)
+		{
+			string processIDtoString = to_string(processes[i].processID);
+			if (instruction.find(processIDtoString) != string::npos)
+			{
+				//	Shave currentLine so it only contains the address string
+				string addressString = instruction.erase(0, processIDtoString.length() + 1);
+
+				//	Convert address string to an int
+				char *cstr = new char[addressString.length() + 1];
+				strcpy(cstr, addressString.c_str());
+				char *pLine;
+				unsigned int addressToInt = (unsigned int)strtol(cstr, &pLine, 0);
+
+				if (((int)addressToInt) < 0)
+					continue;
+
+				//	Parse address for our Displacement, Page, and Segment
+				int displacement = addressToInt & ((1 << (int)log2(pageSize)) - 1);
+				int pageID = (addressToInt >> (int)log2(pageSize)) & ((1 << (int)log2(segmentLength)) - 1);
+				int segmentID = addressToInt >> ((int)log2(pageSize) + (int)log2(segmentLength));
+
+				//	Attempt to page access
+				printf("Attempting page access with Process %d, Segment %d, Page %d, Segment Length %d.\n", i, segmentID, pageID, processes[i].addressSpace.segmentTables[0].segments.size());
+				Page *pPageAccessing = &processes[i].addressSpace.segmentTables[0].segments[segmentID].pageTable.pages[pageID];
+
+				Frame *pFrame = NULL;
+				bool PageFault = false;
+				//	if the accessing page is allocated, page fault
+				if (pPageAccessing->isAllocated == false)
+				{
+					PageFault = true;
+
+					cout << "\033[0;31m * Page fault \033[0m" << endl;
+				}
+				//	if the page accessed matches, replace.
+				else if (!(framesInMainMemory[pPageAccessing->frameID].processID == processes[i].processID &&
+					framesInMainMemory[pPageAccessing->frameID].pageID == pageID &&
+					framesInMainMemory[pPageAccessing->frameID].segmentID == segmentID))
+				{
+					PageFault = true;
+					cout << "\033[0;33m * Page fault (Was Replaced) \033[0m" << endl;
+				}
+
+				if (PageFault)
+				{
+					if (WS_Array.size() < pageFramePerProcess)
+					{
+						//	look for empty space in the main memory
+						for (int k = 0; k < framesInMainMemory.size(); k++)
+						{
+							if (framesInMainMemory[k].isAllocated == false)
+							{
+								pFrame = &framesInMainMemory[k];
+								cout << "\033[0;32m Found unallocated frame in main memory. \033[0m" << endl;
+
+								//	Push back the new page pointer
+								WS_Array.push_back(pPageAccessing);
+
+								break;
+							}
+						}
+						if (pFrame == NULL)
+						{
+							printf("\033[0;31m *ERROR*, pFrame==NULL \033[0m\n");
+							break;
+						}
+					}
+					else //Replace Page
+					{
+						//	set frame pointer to head
+						pFrame = &framesInMainMemory[WS_Array[0]->frameID];
+
+						//	Push back the new page pointer
+						WS_Array.push_back(pPageAccessing);
+
+						//	remove head from working set
+						WS_Array.erase(WS_Array.begin());
+
+						printf("\033[0;32m Replaced frame %d...\033[0m\n", pFrame->frameID);
+					}
+
+					//printf("ALlocating to Frame(%d)\n", pFrame->frameID);
+					pFrame->isAllocated = true;
+					pFrame->processID = processes[i].processID;
+					pFrame->pageID = pageID;
+					pFrame->segmentID = segmentID;
+
+					//	set page to know what frame
+					pPageAccessing->frameID = pFrame->frameID;
+					pPageAccessing->isAllocated = true;
+
+					i--;
+					continue;
+				}
+				else
+				{
+					if (WS_Array.size() > pageFramePerProcess)
+					{
+						//	remove head from working set
+						WS_Array.erase(WS_Array.begin());
+					}
+
+					printf("\033[0;32m Page Found. \033[0m\n");
+				}
+				break;
+			}
+		}
+
+		cout << "Working Set: [";
+		for (size_t ws = 0; ws < WS_Array.size(); ws++)
+		{
+			if (ws+1 == WS_Array.size())
+				cout << WS_Array[ws]->frameID;
+			else
+				cout << WS_Array[ws]->frameID << ", ";
+		}
+		cout << "]" << endl;
 	}
 }
 #pragma endregion
